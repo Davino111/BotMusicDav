@@ -1,63 +1,60 @@
-import os
+import asyncio
 from pyrogram import Client, filters
-from pymongo import MongoClient
-import yt_dlp
-from dotenv import load_dotenv
+from pytgcalls import PyTgCalls
+from pytgcalls.types.input_stream import InputAudioStream
+from pytgcalls.types.stream import StreamAudioEnded
+from pytgcalls.exceptions import GroupCallNotFoundError
+from yt_dlp import YoutubeDL
+from os import system
 
-# Load env
-load_dotenv()
+API_ID = 123456  # Ganti dengan API ID kamu
+API_HASH = "your_api_hash"
+BOT_TOKEN = "your_bot_token"
 
-# Inisialisasi variabel
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGO_URI = os.getenv("MONGO_URI")
-
-# Koneksi ke MongoDB
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["music_bot"]
-log_collection = db["logs"]
-
-# Inisialisasi bot
 app = Client("music_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+pytg = PyTgCalls(app)
 
+ydl_opts = {
+    "format": "bestaudio[ext=m4a]",
+    "outtmpl": "song.%(ext)s",
+    "quiet": True
+}
 
-@app.on_message(filters.command("start"))
-async def start_handler(client, message):
-    await message.reply("Halo! Kirimkan /play <judul lagu> untuk mendownload lagu dari YouTube!")
+@app.on_message(filters.command("play") & filters.group)
+async def play(_, message):
+    chat_id = message.chat.id
 
-@app.on_message(filters.command("play") & filters.private)
-async def play_handler(client, message):
     if len(message.command) < 2:
         return await message.reply("Kirim: /play <judul lagu>")
 
     query = message.text.split(" ", 1)[1]
-    search_url = f"ytsearch:{query}"
+    await message.reply(f"🔍 Mencari `{query}`...")
 
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "noplaylist": True,
-        "outtmpl": "song.%(ext)s",
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }],
-        "quiet": True
-    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"ytsearch:{query}", download=True)['entries'][0]
+        title = info["title"]
+        await message.reply(f"🎶 Memutar: {title}")
 
-    await message.reply(f"🔍 Mencari dan mendownload lagu `{query}`...")
-
+    # Join voice chat dan play lagu
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(search_url, download=True)
-            title = info["title"]
+        await pytg.join_group_call(
+            chat_id,
+            InputAudioStream(
+                "song.m4a"
+            )
+        )
+    except GroupCallNotFoundError:
+        await message.reply("❌ Voice chat belum dimulai di grup ini!")
 
-        await message.reply_audio("song.mp3", title=title)
-        log_collection.insert_one({"user_id": message.from_user.id, "query": query, "title": title})
+@pytg.on_stream_end()
+async def on_stream_end(_, update: StreamAudioEnded):
+    await pytg.leave_group_call(update.chat_id)
 
-    except Exception as e:
-        await message.reply("⚠️ Terjadi kesalahan saat mendownload lagu.")
-        print(e)
+@app.on_message(filters.command("stop") & filters.group)
+async def stop(_, message):
+    await pytg.leave_group_call(message.chat.id)
+    await message.reply("⏹️ Musik dihentikan.")
 
+# Jalankan bot
+pytg.start()
 app.run()

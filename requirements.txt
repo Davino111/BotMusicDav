@@ -1,5 +1,7 @@
+
 pyrogram
 tgcrypto
+py-tgcalls
 yt-dlp
 pymongo
 python-dotenv

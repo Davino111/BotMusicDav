@@ -21,6 +21,7 @@ log_collection = db["logs"]
 # Inisialisasi bot
 app = Client("music_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+
 @app.on_message(filters.command("start"))
 async def start_handler(client, message):
     await message.reply("Halo! Kirimkan /play <judul lagu> untuk mendownload lagu dari YouTube!")
